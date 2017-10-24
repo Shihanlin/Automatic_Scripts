@@ -1,0 +1,469 @@
+# ###################################################################################################
+# DATABASE DAILY HEALTH CHECK MONITORING SCRIPT
+VER="[1.0]"
+# ===============================================================================
+# CAUTION:
+# THIS SCRIPT MAY CAUSE A SLIGHT PERFORMANCE IMPACT WHEN IT RUN,
+# I RECOMMEND TO NOT RUN THIS SCRIPT SO FREQUENT.
+# E.G. YOU MAY CONSIDER TO SCHEDULE IT TO RUN ONE TIME BETWEEN 12:00AM to 5:00AM.
+# ===============================================================================
+#
+# FEATURES:
+# CHECKING OS.
+# CHECKING CPU UTILIZATION.
+# CHECKING FILESYSTEM UTILIZATION.
+# CHECKING ASM DISKGROUPS UTILIZATION.
+# CHECKING OS LOGS.
+# CHECKING DATABASE SIZE GROWTH.
+# CHECKING OS / HARDWARE STATISTICS.
+# CHECKING RESOURCE LIMITS.
+#					#   #     #
+# Author:	hlshi@wisedu.com	      # # # #   ###
+#
+# 
+# ###################################################################################################
+SCRIPT_NAME="server_db_chk${VER}"
+SRV_NAME=`uname -n`
+MAIL_LIST="hlshi@wisedu.com"
+
+	case ${MAIL_LIST} in "hlshi@wisedu.com")
+	 echo
+	 echo "##############################################################################################"
+	 echo "You Missed Something :-)"
+	 echo "In order to receive the HEALTH CHECK report via Email, you have to ADD your E-mail at line# 80"
+	 echo "by replacing this template [youremail@yourcompany.com] with YOUR E-mail address."
+	 echo "DB HEALTH CHECK report will be saved on disk..."
+	 echo "##############################################################################################"
+	 echo;;
+	esac
+
+# #########################
+# THRESHOLDS:
+# #########################
+# Send an E-mail for each THRESHOLD if been reached:
+# ADJUST the following THRESHOLD VALUES as per your requirements:
+
+FSTHRESHOLD=90		# THRESHOLD FOR FILESYSTEM %USED		[OS]
+CPUTHRESHOLD=90		# THRESHOLD FOR CPU %UTILIZATION		[OS]
+TBSTHRESHOLD=90		# THRESHOLD FOR TABLESPACE %USED		[DB]
+FRATHRESHOLD=90         # THRESHOLD FOR FLASH RECOVERY AREA %USED       [DB]
+ASMTHRESHOLD=90         # THRESHOLD FOR ASM DISK GROUPS                 [DB]
+UNUSEINDXTHRESHOLD=1    # THRESHOLD FOR NUMBER OF UNUSABLE INDEXES	[DB]
+INVOBJECTTHRESHOLD=1    # THRESHOLD FOR NUMBER OF INVALID OBJECTS	[DB]
+FAILLOGINTHRESHOLD=1    # THRESHOLD FOR NUMBER OF FAILED LOGINS		[DB]
+AUDITRECOTHRESHOLD=1    # THRESHOLD FOR NUMBER OF AUDIT RECORDS         [DB]
+CORUPTBLKTHRESHOLD=1    # THRESHOLD FOR NUMBER OF CORRUPTED BLOCKS	[DB]
+FAILDJOBSTHRESHOLD=1    # THRESHOLD FOR NUMBER OF FAILED JOBS		[DB]
+JOBSRUNSINCENDAY=1	# THRESHOLD FOR JOBS RUNNING LONGER THAN N DAY  [DB]
+NEWOBJCONTTHRESHOLD=1	# THRESHOLD FOR NUMBER OF NEWLY CREATED OBJECTS [DB]
+
+# CHECK DATABASE AUDIT RECORDS: [Expected to increase CPU Load during script execution when enabled]
+CHKAUDITRECORDS=Y
+
+CPUDIGMORE=Y
+
+# CHECK CLUSTERWARE HEALTH:
+CLUSTER_CHECK=Y
+
+# #######################################
+# Excluded INSTANCES:
+# #######################################
+# Here you can mention the instances dbalarm will IGNORE and will NOT run against:
+# Use pipe "|" as a separator between each instance name.
+# e.g. Excluding: -MGMTDB, ASM instances:
+
+EXL_DB="\-MGMTDB|ASM"           #Excluding INSTANCES [Will get excluded from the report].
+
+# #########################
+# Excluded ERRORS:
+# #########################
+# Here you can exclude the errors that you don't want to be alerted when they appear in the logs:
+# Use pipe "|" between each error.
+
+EXL_ALERT_ERR="ORA-2396|TNS-00507|TNS-12502|TNS-12560|TNS-12537|TNS-00505"              #Excluded ALERTLOG ERRORS [Will not get reported].
+EXL_LSNR_ERR="TNS-00507|TNS-12502|TNS-12560|TNS-12537|TNS-00505"                        #Excluded LISTENER ERRORS [Will not get reported].
+
+
+# ################################
+# Excluded FILESYSTEM/MOUNT POINTS:
+# ################################
+# Here you can exclude specific filesystems/mount points from being reported by dbalarm:
+# e.g. Excluding: /dev/mapper, /dev/asm mount points:
+
+EXL_FS="\/dev\/mapper\/|\/dev\/asm\/"                                                   #Excluded mount points [Will be skipped during the check].
+
+CHECK_DATE=`date +%Y%m%d_%I%M`
+RESLUTLOG=/home/oracle/reports/OS_REPORT/OS_CHECK_$CHECK_DATE.log
+
+# #########################
+# Checking The OS Version:
+# #########################
+echo "********OS Level***************************" >${RESLUTLOG}
+uname -a >>${RESLUTLOG}
+more /etc/*release >>${RESLUTLOG}
+echo -e "----------------------------------------------------\n">>${RESLUTLOG}
+
+echo "********TIMEZONE****************************">>${RESLUTLOG}
+date -R >>${RESLUTLOG}
+hwclock --show >>${RESLUTLOG}
+echo -e "----------------------------------------------------\n">>${RESLUTLOG}
+
+
+# #########################
+# Checking The FILESYSTEM:
+# #########################
+echo "********FILESYSTEM_CHECK1********************" >>${RESLUTLOG}
+df -h >>${RESLUTLOG}
+echo "usage over 75%" >>${RESLUTLOG}
+echo -e "-------------------------------\n">>${RESLUTLOG}
+df -h |grep '[7-9][5-9]%'>>${RESLUTLOG}
+echo -e "-----------------------------------------------------\n">>${RESLUTLOG}
+
+# #########################
+# Checking The HOST_FILE:
+# #########################
+echo "********System /etc/hosts***************************" >>${RESLUTLOG}
+cat /etc/hosts >>${RESLUTLOG}
+echo -e "-----------------------------------------------------\n">>${RESLUTLOG}
+
+# #########################
+# Checking The SYSCTL_FILE:
+# #########################
+echo "********System /etc/sysctl.conf**************************" >>${RESLUTLOG}
+cat /etc/sysctl.conf >>${RESLUTLOG}
+echo -e "-----------------------------------------------------\n">>${RESLUTLOG}
+
+# #########################
+# Checking The MEMORY:
+# #########################
+echo "**********mem check********************************" >>${RESLUTLOG}
+free -g >>${RESLUTLOG}
+echo -e "---------------------------\n">>${RESLUTLOG}
+vmstat 2 5 >>${RESLUTLOG}
+echo -e "----------------------------------------------------\n">>${RESLUTLOG}
+
+# #########################
+# Checking The IO:
+# #########################
+echo "********io check*******************************" >>${RESLUTLOG}
+iostat >>${RESLUTLOG}
+echo -e "----------------------------------------------------\n">>${RESLUTLOG}
+
+# #########################
+# Checking The NETWORK:
+# #########################
+echo "********network route check**************************" >>${RESLUTLOG}
+netstat -rn >>${RESLUTLOG}
+echo "********network check*******************************" >>${RESLUTLOG}
+ifconfig -a >>${RESLUTLOG}
+echo -e "----------------------------------------------------\n">>${RESLUTLOG}
+
+# #########################
+# Checking The OS KERNEL_CPU:
+# #########################
+echo "********Check CPU Status*************************************" >>${RESLUTLOG}
+    Physical_CPUs=$(grep "physical id" /proc/cpuinfo| sort | uniq | wc -l)
+    Virt_CPUs=$(grep "processor" /proc/cpuinfo | wc -l)
+    CPU_Kernels=$(grep "cores" /proc/cpuinfo|uniq| awk -F ': ' '{print $2}')
+    CPU_Type=$(grep "model name" /proc/cpuinfo | awk -F ': ' '{print $2}' | sort | uniq)
+    CPU_Arch=$(uname -m)
+    echo "number of physical CPU:$Physical_CPUs" >>${RESLUTLOG}
+    echo "number of virtual CPU:$Virt_CPUs" >>${RESLUTLOG}
+    echo "cores per cpu:$CPU_Kernels" >>${RESLUTLOG}
+    echo "    CPU type:$CPU_Type" >>${RESLUTLOG}
+    echo "    CPU architecture:$CPU_Arch" >>${RESLUTLOG}
+    # report information
+echo # #############################
+# Checking The CPU Utilization:
+# #############################
+
+echo "***********CPU STATISTICS***************" >>${RESLUTLOG}
+top -d 1 -n 4 b | grep "^Cpu(s):">>${RESLUTLOG}
+
+echo "******Report CPU Utilization if reach >= CPUTHRESHOLD:*******************************" >>${RESLUTLOG}
+OS_TYPE=`uname -s`
+#CPUUTLLOG=/tmp/RESLUTLOG_DBA_BUNDLE.log
+
+echo "****** Getting CPU utilization in last 5 seconds:********************" >>${RESLUTLOG}
+case `uname` in
+        Linux ) CPU_REPORT_SECTIONS=`iostat -c 1 5 | sed -e 's/,/./g' | tr -s ' ' ';' | sed '/^$/d' | tail -1 | grep ';' -o | wc -l`
+		CPU_COUNT=`cat /proc/cpuinfo|grep processor|wc -l`
+                        if [ ${CPU_REPORT_SECTIONS} -ge 6 ]; then
+                           CPU_IDLE=`iostat -c 1 5 | sed -e 's/,/./g' | tr -s ' ' ';' | sed '/^$/d' | tail -1| cut -d ";" -f 7`
+						   echo "CPU_IDLE(%):$CPU_IDLE" >>${RESLUTLOG}
+                        else
+                           CPU_IDLE=`iostat -c 1 5 | sed -e 's/,/./g' | tr -s ' ' ';' | sed '/^$/d' | tail -1| cut -d ";" -f 6`
+						   echo "CPU_IDLE(%):$CPU_IDLE" >>${RESLUTLOG}
+                        fi
+        ;;
+        AIX )   CPU_IDLE=`iostat -t $INTERVAL_SEC $NUM_REPORT | sed -e 's/,/./g'|tr -s ' ' ';' | tail -1 | cut -d ";" -f 6`
+		CPU_COUNT=`lsdev -C|grep Process|wc -l`
+        ;;
+        SunOS ) CPU_IDLE=`iostat -c $INTERVAL_SEC $NUM_REPORT | tail -1 | awk '{ print $4 }'`
+		CPU_COUNT=`psrinfo -v|grep "Status of processor"|wc -l`
+        ;;
+        HP-UX) 	SAR="/usr/bin/sar"
+		CPU_COUNT=`lsdev -C|grep Process|wc -l`
+                if [ ! -x $SAR ]; then
+                 echo "sar command is not supported on your environment | CPU Check ignored" >>${RESLUTLOG}; CPU_IDLE=99
+                else
+                 CPU_IDLE=`/usr/bin/sar 1 5 | grep Average | awk '{ print $5 }'`
+                fi
+        ;;
+        *) echo "uname command is not supported on your environment | CPU Check ignored">>${RESLUTLOG}; CPU_IDLE=99
+        ;;
+        esac
+
+# Getting Utilized CPU (100-%IDLE):
+CPU_UTL_FLOAT=`echo "scale=2; 100-($CPU_IDLE)"|bc`
+
+# Convert the average from float number to integer:
+CPU_UTL=${CPU_UTL_FLOAT%.*}
+
+	if [ -z ${CPU_UTL} ]
+	 then
+	  CPU_UTL=1
+	fi
+
+# Compare the current CPU utilization with the Threshold:
+#RESLUTLOG=/tmp/top_processes_DBA_BUNDLE.log
+
+        if [ ${CPU_UTL} -ge ${CPUTHRESHOLD} ]
+	 then
+                export COLUMNS=300           #Increase the COLUMNS width to display the full output [Default is 167]
+		echo "CPU STATS:"	  >>  ${RESLUTLOG}
+                echo "========="   	  >> ${RESLUTLOG}
+		mpstat 1 5		  >> ${RESLUTLOG}
+		echo ""			  >> ${RESLUTLOG}
+                echo "VMSTAT Output:"     >> ${RESLUTLOG}
+                echo "============="   	  >> ${RESLUTLOG}
+		echo "[If the runqueue number in the (r) column exceeds the number of CPUs [${CPU_COUNT}] this indicates a CPU bottleneck on the system]." >> ${RESLUTLOG}
+                echo ""                   >> ${RESLUTLOG}
+		vmstat 2 5		  >> ${RESLUTLOG}
+                echo ""                   >> ${RESLUTLOG}
+		echo "Top 10 Processes:"  >> ${RESLUTLOG}
+		echo "================"   >> ${RESLUTLOG}
+		echo "" 		  >> ${RESLUTLOG}
+		top -c -b -n 1|head -17   >> ${RESLUTLOG}
+                unset COLUMNS                #Set COLUMNS width back to the default value
+		#ps -eo pcpu,pid,user,args | sort -k 1 -r | head -11 >> ${RESLUTLOG}-e "----------------------------------------------------\n">>RESLUTLOG
+        fi
+
+		
+		
+# #########################
+# Checking The OS LOG:
+# #########################
+echo "********OS LOG*********************************" >>${RESLUTLOG}
+tail -500 /var/log/messages  >>${RESLUTLOG}
+echo -e "----------------------------------------------------\n">>${RESLUTLOG}
+
+		
+# ############################################
+# Checking RAC/ORACLE_RESTART Services:
+# ############################################
+
+HOSTNAME=`hostname`
+echo "*******Checking RAC/ORACLE_RESTART Services*******">>${RESLUTLOG}
+
+		case ${CLUSTER_CHECK} in
+                y|Y|yes|YES|Yes)
+
+echo "Check for ocssd clusterware process:">>${RESLUTLOG}
+CHECK_OCSSD=`ps -ef|grep 'ocssd.bin'|grep -v grep|wc -l`
+CHECK_CRSD=`ps -ef|grep 'crsd.bin'|grep -v grep|wc -l`
+
+if [ ${CHECK_CRSD} -gt 0 ]
+then
+ CLS_STR=crs
+ echo "The CLS_STR is $CLS_STR" >>${RESLUTLOG}
+ CLUSTER_TYPE=CLUSTERWARE
+ echo "The CLUTER_TYPE is $CLUSTER_TYPE">>${RESLUTLOG}
+else
+ CLS_STR=has
+ echo "The CLS_STR is $CLS_STR" >>${RESLUTLOG}
+ CLUSTER_TYPE=ORACLE_RESTART
+ echo "The CLUTER_TYPE is $CLUSTER_TYPE">>${RESLUTLOG}
+fi
+
+	if [ ${CHECK_OCSSD} -gt 0 ]
+	 then
+
+GRID_HOME=`ps -ef|grep 'ocssd.bin'|grep -v grep|awk '{print $NF}'|sed -e 's/\/bin\/ocssd.bin//g'|grep -v sed|grep -v "//g"`
+echo "The GIRD_HOME is $GRID_HOME" >>${RESLUTLOG}
+
+
+FILE_NAME=${GRID_HOME}/bin/ocrcheck
+export FILE_NAME
+if [ -f ${FILE_NAME} ]
+then
+echo ""                                                                 >> ${RESLUTLOG}
+echo "^^^^^^^^^^^^^^^^^^^"                                              >> ${RESLUTLOG}
+echo "OCR DISKS CHECKING:"                                              >> ${RESLUTLOG}
+echo "^^^^^^^^^^^^^^^^^^^"                                              >> ${RESLUTLOG}
+${GRID_HOME}/bin/ocrcheck                                               >> ${RESLUTLOG}
+echo ""                                                                 >> ${RESLUTLOG}
+fi
+
+FILE_NAME=${GRID_HOME}/bin/ocrconfig
+export FILE_NAME
+if [ -f ${FILE_NAME} ]
+then
+echo ""                                                                 >> ${RESLUTLOG}
+echo "^^^^^^^^^^^^^^^^^^^"                                              >> ${RESLUTLOG}
+echo "OCR BACKUP CHECKING:"                                              >> ${RESLUTLOG}
+echo "^^^^^^^^^^^^^^^^^^^"                                              >> ${RESLUTLOG}
+${GRID_HOME}/bin/ocrconfig -showbackup                                 >> ${RESLUTLOG}
+echo ""                                                                 >> ${RESLUTLOG}
+fi
+
+FILE_NAME=${GRID_HOME}/bin/crsctl
+export FILE_NAME
+if [ -f ${FILE_NAME} ]
+then
+echo ""                                                                 >> ${RESLUTLOG}
+echo "^^^^^^^^^^^^^^^^^^^"                                              >> ${RESLUTLOG}
+echo "CSS Diagwait Status:"                                              >> ${RESLUTLOG}
+echo "^^^^^^^^^^^^^^^^^^^"                                              >> ${RESLUTLOG}
+${GRID_HOME}/bin/crsctl get css diagwait                                >> ${RESLUTLOG}
+echo ""                                                                 >> ${RESLUTLOG}
+fi
+
+FILE_NAME=${GRID_HOME}/bin/crsctl
+export FILE_NAME
+if [ -f ${FILE_NAME} ]
+then
+echo ""                                                                 >> ${RESLUTLOG}
+echo "^^^^^^^^^^^^^^^^^^^^"                                             >> ${RESLUTLOG}
+echo "VOTE DISKS CHECKING:"                                             >> ${RESLUTLOG}
+echo "^^^^^^^^^^^^^^^^^^^^"                                             >> ${RESLUTLOG}
+${GRID_HOME}/bin/crsctl query css votedisk                              >> ${RESLUTLOG}
+echo ""                                                                 >> ${RESLUTLOG}
+fi
+	fi
+
+	if [ ${CHECK_OCSSD} -gt 0 ]
+	 then
+
+GRID_HOME=`ps -ef|grep 'ocssd.bin'|grep -v grep|awk '{print $NF}'|sed -e 's/\/bin\/ocssd.bin//g'|grep -v sed|grep -v "//g"`
+export GRID_HOME
+
+FILE_NAME=${GRID_HOME}/bin/crsctl
+export FILE_NAME
+if [ -f ${FILE_NAME} ]
+then
+echo ""                                                                 >> ${RESLUTLOG}
+echo ""                                                                 >> ${RESLUTLOG}
+echo "^^^^^^^^^^^^^^^^^^^^^^^"                                          >> ${RESLUTLOG}
+echo "${CLUSTER_TYPE} SERVICES:"                                        >> ${RESLUTLOG}
+echo "^^^^^^^^^^^^^^^^^^^^^^^"                                          >> ${RESLUTLOG}
+AWK=/usr/bin/awk 
+$AWK \
+'BEGIN {printf "%-55s %-24s %-18s\n", "HA Resource", "Target", "State";
+printf "%-55s %-24s %-18s\n", "-----------", "------", "-----";}'	>> ${RESLUTLOG}
+$GRID_HOME/bin/crsctl status resource | $AWK \
+'BEGIN { FS="="; state = 0; }
+$1~/NAME/ && $2~/'$1'/ {appname = $2; state=1};
+state == 0 {next;}
+$1~/TARGET/ && state == 1 {apptarget = $2; state=2;}
+$1~/STATE/ && state == 2 {appstate = $2; state=3;}
+state == 3 {printf "%-55s %-24s %-18s\n", appname, apptarget, appstate; state=0;}'	>> ${RESLUTLOG}
+fi 
+
+FILE_NAME=${ORACLE_HOME}/bin/srvctl
+export FILE_NAME
+if [ -f ${FILE_NAME} ]
+then
+echo ""                                                                 >> ${RESLUTLOG}
+echo "^^^^^^^^^^^^^^^^^^^^^^^^"                                         >> ${RESLUTLOG}
+echo "DATABASE SERVICES STATUS:"                                        >> ${RESLUTLOG}
+echo "^^^^^^^^^^^^^^^^^^^^^^^^"                                         >> ${RESLUTLOG}
+${ORACLE_HOME}/bin/srvctl status service -d ${DB_UNQ_NAME}              >> ${RESLUTLOG}
+echo ""                                                                 >> ${RESLUTLOG}
+fi
+
+	fi
+		;;
+		esac
+
+echo ""                                                                 >> ${RESLUTLOG}
+echo "^^^^^^^^^^^^^^^^^"                                                >> ${RESLUTLOG}
+echo "Local Filesystem:"                                                >> ${RESLUTLOG}
+echo "^^^^^^^^^^^^^^^^^"                                                >> ${RESLUTLOG}
+df -h                                                                   >> ${RESLUTLOG}
+echo ""                                                                 >> ${RESLUTLOG}
+
+
+echo ""                                                                 >> ${RESLUTLOG}
+echo "^^^^^^^^^^^^^^^^^"                                                >> ${RESLUTLOG}
+echo "Alert log:"                                                >> ${RESLUTLOG}
+echo "^^^^^^^^^^^^^^^^^"                                                >> ${RESLUTLOG}
+tail -1000 ${GRID_HOME}/log/$HOSTNAME/alert*.log                           >> ${RESLUTLOG}
+echo ""    
+
+echo ""                                                                 >> ${RESLUTLOG}
+echo "^^^^^^^^^^^^^^^^^"                                                >> ${RESLUTLOG}
+echo "CRS log:"                                                >> ${RESLUTLOG}
+echo "^^^^^^^^^^^^^^^^^"                                                >> ${RESLUTLOG}
+tail -1000 ${GRID_HOME}/log/$HOSTNAME/crsd/crsd.log                          >> ${RESLUTLOG}
+echo ""
+
+
+echo ""                                                                 >> ${RESLUTLOG}
+echo "^^^^^^^^^^^^^^^^^"                                                >> ${RESLUTLOG}
+echo "CSS log:"                                                >> ${RESLUTLOG}
+echo "^^^^^^^^^^^^^^^^^"                                                >> ${RESLUTLOG}
+tail -1000 ${GRID_HOME}/log/$HOSTNAME/cssd/ocssd.log                          >> ${RESLUTLOG}
+echo ""
+
+
+echo ""                                                                 >> ${RESLUTLOG}
+echo "^^^^^^^^^^^^^^^^^"                                                >> ${RESLUTLOG}
+echo "ASM log:"                                                >> ${RESLUTLOG}
+echo "^^^^^^^^^^^^^^^^^"                                                >> ${RESLUTLOG}
+tail -1000 /u01/app/oracle/diag/asm/+asm/+ASM*/trace/alert*.log                          >> ${RESLUTLOG}
+echo ""
+
+echo ""                                                                 >> ${RESLUTLOG}
+echo "^^^^^^^^^^^^^^^^^"                                                >> ${RESLUTLOG}
+echo "UDEV rules:"                                                >> ${RESLUTLOG}
+echo "^^^^^^^^^^^^^^^^^"                                                >> ${RESLUTLOG}
+cat /etc/udev/rules.d/*oracle*                          >> ${RESLUTLOG}
+ls -l /dev/mapper/*                                     >> ${RESLUTLOG}
+echo ""
+
+
+# #########################
+# Checking The FILESYSTEM:
+# #########################
+
+echo "Report Partitions that reach the threshold of Used Space:">>${RESLUTLOG}
+
+
+
+echo "[Reported By ${SCRIPT_NAME} Script]"      >> ${RESLUTLOG}
+echo ""                                         >> ${RESLUTLOG}
+df -h                                           >> ${RESLUTLOG}
+df -h | grep -v "^Filesystem" |awk '{print substr($0, index($0, $2))}'| egrep -v "${EXL_FS}"|awk '{print $(NF-1)" "$NF}'| while read OUTPUT
+   do
+        PRCUSED=`echo ${OUTPUT}|awk '{print $1}'|cut -d'%' -f1`
+        FILESYS=`echo ${OUTPUT}|awk '{print $2}'`
+                if [ ${PRCUSED} -ge ${FSTHRESHOLD} ]
+                 then
+echo "ALARM: Filesystem [${FILESYS}] on Server [${SRV_NAME}] has reached ${PRCUSED}% of USED space" >>${RESLUTLOG}
+#mail -s "ALARM: Filesystem [${FILESYS}] on Server [${SRV_NAME}] has reached ${PRCUSED}% of USED space" ${MAIL_LIST} < ${FSLOG}
+                fi
+   done
+
+#rm -f ${FSLOG}
+
+
+
+echo "HEALTH CHECK REPORT FOR OS WAS SAVED TO: ${RESLUTLOG}" >>${RESLUTLOG}
+
+# #############
+# END OF SCRIPT
+# #############
+# REPORT BUGS to: hlshi@wisedu.com
+
+
