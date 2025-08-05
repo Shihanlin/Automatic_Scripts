@@ -1,0 +1,35 @@
+EMAIL_LIST="xxx.xx.xx@xxx.com"
+HOSTNAME=$(hostname)
+email_content_file="/tmp/daily_postgresdb_backup_mail_body.txt"
+MAIL_BODY_TEMP="/tmp/daily_postgresdb_backup_mail_body_temp.txt"
+PGBACKUP=/backup/pg_dump
+DATE=$(date "+%F-%H-%M-%S")
+dumpfile="$PGBACKUP/daily_eipaasdb_backup_$DATE.dump"
+HOSTNAME=$(hostname)
+IP=$(ip a | grep 'inet ' | grep -v '127.0.0.1' | awk '{print $2}' | cut -d'/' -f1)
+MAIL_SUBJECT="[PG Alert] $IP HOSTNAME: $HOSTNAME Database Dump Backup Failed"
+
+
+pg_dump -hlocalhost -U postgres --port=5466 -d eipaasdb -C -f  $dumpfile >$email_content_file 2>&1
+
+if [ $? -eq 0 ]; then
+   # echo "Backup completed successfully"
+    # 发送邮件
+        #send_alert "[Job Status]" "Dump Backup successful on $HOSTNAME - ${DATE}"
+
+    # 清理旧备份
+    find $PGBACKUP -mtime +7 -type f -name "daily_eipaasdb_backup_*" -exec rm -rf {} \;
+else
+        echo "Dump Backup Failed For 'eipaasdb' Database"
+        printf  "============================================================\n">$MAIL_BODY_TEMP
+        printf  "🚨 WARNING: 'eipaasdb' Database Dump Backup Job Failed 🚨\n" >>$MAIL_BODY_TEMP
+        printf  "%s\n" "📅 Detection time: $(date)" >>$MAIL_BODY_TEMP
+        printf  "\n">>$MAIL_BODY_TEMP
+        printf  "============================================================\n" >>$MAIL_BODY_TEMP
+        printf  "🔍 Log Details Of Job:\n" >>$MAIL_BODY_TEMP
+        cat $email_content_file>>$MAIL_BODY_TEMP
+        mv $MAIL_BODY_TEMP $email_content_file
+        mailx -s "$MAIL_SUBJECT" "$EMAIL_LIST" <$email_content_file
+    exit 1
+fi
+cat /dev/null >$email_content_file
