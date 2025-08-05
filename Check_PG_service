@@ -1,0 +1,40 @@
+#!/bin/bash
+
+# 配置邮件告警的收件人邮箱地址
+ALERT_EMAIL="xx.xx.xx@xxxx.com"
+
+# 获取主机名和 IP 地址
+HOSTNAME=$(hostname)
+IP_ADDRESS=$(hostname -I | awk '{print $1}')
+
+# 邮件主题：包含主机名和 IP 地址
+SUBJECT="[PG Alert] PG process is not running $HOSTNAME ($IP_ADDRESS)"
+
+# 使用 pgrep 检测 PostgreSQL 进程是否在运行
+PGPROC=$(pgrep -u postgres -x postgres)
+
+# Function: Create separator line
+separator() {
+    local width=${1:-60}
+    printf '%*s\n' "$width" '' | tr ' ' '='
+}
+# 如果 PostgreSQL 进程未运行，则发送告警邮件
+if [ -z "$PGPROC" ]; then
+  # 邮件正文内容，格式化
+  DETECTION_TIME=$(date +"%Y-%m-%d %H:%M:%S %Z")
+  ALERT_MESSAGE="$(separator 60)\n\n"
+  ALERT_MESSAGE+="🚨Critical: PG process is not running🚨\n"
+  ALERT_MESSAGE+="📅Detaction Time: $DETECTION_TIME \n\n"
+  ALERT_MESSAGE+="$(separator 60)\n"
+  ALERT_MESSAGE+="🔍Error Details: \n\n"
+  ALERT_MESSAGE+="PG process is not running !"
+  # 发送邮件，确保邮件内容格式正确
+  echo -e "$ALERT_MESSAGE" | mailx -s "$SUBJECT" $ALERT_EMAIL
+else
+  # PostgreSQL 进程正在运行，打印进程信息
+  echo -e "PostgreSQL process is running. Below are the details:\n"
+  ps aux | grep '[p]ostgres'  # 只列出 PostgreSQL 进程
+  echo -e "\n$(separator 60)"
+  echo -e "PostgreSQL process is running on $HOSTNAME ($IP_ADDRESS) - $(date +"%Y-%m-%d %H:%M:%S")"
+  echo -e "$(separator 60)"
+fi
