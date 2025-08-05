@@ -1,0 +1,71 @@
+#!/bin/bash
+
+# PostgreSQL connection information
+export PGSQL_HOME=/usr/pgsql-17
+export PGDATA=/data/pgsql/17/data
+export PGPORT=5466
+export PGBACKUP=/data/pgsql/17/backups/pg_dump
+export PATH=/usr/pgsql-17/bin:$PATH
+# Server Info
+HOSTNAME=$(hostname)
+IP_ADDRESS=$(hostname -I | awk '{print $1}')
+# Log directory
+TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
+EMAIL_TO="xxx.xxx.xxx@xxxx.com"   # Recipient email
+
+# Monitor Blocking Sessions
+monitor_blocking_sessions() {
+    local EMAIL_SUBJECT="[PG Alert] Blocking Session on ${HOSTNAME} (${IP_ADDRESS})"
+    local BLOCKING_SESSIONS
+    BLOCKING_SESSIONS=$(psql -t -A -F"," -c "
+select
+blocking.pid AS blocking_id,
+blocking.datname as dbname,
+blocking.client_addr as  blocking_client_ip,
+blocking.usename,
+left(blocking.query,50),
+activity.pid,
+activity.client_addr as client_ip,
+activity.usename,
+left(activity.query,50)
+FROM pg_stat_activity AS activity
+JOIN pg_stat_activity AS blocking ON blocking.pid = ANY(pg_blocking_pids(activity.pid));")
+
+# Remove extra spaces to ensure $BLOCKING_SESSIONS is not empty
+BLOCKING_SESSIONS_CLEANED=$(echo "$BLOCKING_SESSIONS" | tr -d '[:space:]')
+
+# If there are blocking sessions, log and send email
+if [[ -n "$BLOCKING_SESSIONS_CLEANED" ]]; then
+    TIMESTAMP=$(date +"%Y-%m-%d %H:%M:%S")
+
+    # Construct email content
+EMAIL_BODY=$(cat <<EOF
+============================================================
+🚨 WARNING: PostgreSQL Blocking Session Detected 🚨
+📅 Detection Time: $TIMESTAMP
+============================================================
+🔍 **Error Details:**
+Blocking PID    Blocking Client IP     DB Name   Blocking User      Blocking Query (truncated)                  Waiting PID    Waiting Client IP       Waiting User       Waiting Query (truncated)
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+$(echo "$BLOCKING_SESSIONS" | awk -F "," '{
+    printf "%-12s %-22s %-10s %-18s %-50s %-12s %-22s %-18s %-50s\n",
+    $1,
+    $3,
+    $2,
+    $4,
+    substr($5, 1, 50),
+    $6,
+    $7,
+    $8,
+    substr($9, 1, 50)
+}')
+--------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
+EOF
+)
+
+    # Send email
+   echo -e "$EMAIL_BODY" | mailx -s "$EMAIL_SUBJECT" "$EMAIL_TO"
+fi
+}
+
+monitor_blocking_sessions
